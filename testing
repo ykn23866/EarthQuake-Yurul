@@ -1,0 +1,4 @@
+// 自动跳转移动版
+if(/Mobile|Android|iOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+    window.location.href = '/mobile';
+}
