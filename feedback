@@ -1,0 +1,15 @@
+// 触觉反馈模式
+   const VIBRATION_PATTERNS = {
+       warning: [200, 100, 200],
+       tsunami: [300, 300, 300],
+       aftershock: [150, 50, 150]
+   };
+
+   // 视觉反馈动画
+   function showMapFeedback(type) {
+       const mapEl = document.getElementById('quake-map');
+       mapEl.classList.add(`feedback-${type}`);
+       setTimeout(() => {
+           mapEl.classList.remove(`feedback-${type}`);
+       }, 500);
+   }
