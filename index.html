@@ -2,148 +2,169 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="screen-orientation" content="landscape">
-    <title>地震先知-YURUI Mobile</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>地震先知-YURUI 完全版</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"/>
     <style>
         :root {
             --alert-red: #ff3860;
             --alert-yellow: #ffdd57;
             --alert-blue: #209cee;
+            --bg-color: #f0f8ff;
         }
 
-        /* 横屏强制提示 */
-        .orientation-warning {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: rgba(0,0,0,0.9);
-            color: white;
-            z-index: 9999;
-            justify-content: center;
-            align-items: center;
-            font-size: 2rem;
-            text-align: center;
-        }
-
-        @media (orientation: portrait) {
-            .orientation-warning { display: flex; }
-            #app { display: none; }
-        }
-
-        /* 移动端横屏布局 */
         body {
             margin: 0;
-            overflow: hidden;
-            touch-action: none;
             font-family: 'Noto Sans JP', sans-serif;
+            background: var(--bg-color);
         }
 
-        .mobile-container {
-            display: flex;
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 320px;
             height: 100vh;
-            width: 100vw;
-            flex-direction: row;
+            gap: 10px;
         }
 
-        .map-container {
-            flex: 1;
-            position: relative;
+        #quake-map {
+            background: #e6f3ff;
+            transition: filter 0.3s;
         }
 
-        .mobile-panel {
-            width: 35vw;
-            min-width: 300px;
-            background: rgba(255,255,255,0.95);
+        .control-panel {
+            background: rgba(255, 255, 255, 0.95);
             padding: 1rem;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.1);
             overflow-y: auto;
-            border-left: 2px solid #ddd;
         }
 
-        /* 移动端优化元素 */
-        .mobile-alert {
+        .voice-avatar {
             position: absolute;
-            bottom: 10px;
-            left: 10px;
-            right: 10px;
-            background: rgba(255,255,255,0.9);
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            transition: transform 0.2s;
+        }
+
+        .voice-avatar img {
+            width: 100px;
+            height: 100px;
+            filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.2));
+            animation: breathe 3s ease-in-out infinite;
+        }
+
+        @keyframes breathe {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+
+        .alert-banner {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 1rem 2rem;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 50px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+            font-size: 1.2em;
+            backdrop-filter: blur(5px);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .event-item {
             padding: 1rem;
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            font-size: 1.1rem;
+            margin: 0.5rem 0;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: transform 0.2s;
         }
 
-        .mobile-avatar {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            width: 60px;
-            height: 60px;
-            filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.2));
+        .event-item:hover {
+            transform: translateX(5px);
         }
 
-        .quake-marker {
-            animation: mobilePulse 1.5s infinite;
+        .audio-indicator {
+            position: fixed;
+            top: 15px;
+            right: 15px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #4CAF50;
+            animation: sonar 1.5s infinite;
+            opacity: 0.8;
         }
 
-        @keyframes mobilePulse {
-            0% { transform: scale(0.8); opacity: 0.7; }
-            100% { transform: scale(1.2); opacity: 0; }
+        @keyframes sonar {
+            0% { 
+                box-shadow: 0 0 0 0 rgba(76,175,80,0.4); 
+                transform: scale(0.9);
+            }
+            100% { 
+                box-shadow: 0 0 0 20px rgba(76,175,80,0); 
+                transform: scale(1.1);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: 60vh 40vh;
+            }
+            .voice-avatar img {
+                width: 70px;
+                height: 70px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="orientation-warning">
-        <div>⚠️ 请将手机旋转至横屏使用 ⚠️</div>
-    </div>
-
     <div id="app">
-        <div class="mobile-container">
-            <div class="map-container" id="quake-map">
-                <img src="yurui-mobile.png" class="mobile-avatar" :class="{shaking: isShaking}">
-                
-                <!-- 移动端警报条 -->
-                <div class="mobile-alert" :style="{
-                    border: `2px solid ${alertColor}`,
-                    color: alertColor
+        <div class="audio-indicator" v-show="isPlaying"></div>
+        
+        <div class="container">
+            <div id="quake-map">
+                <div class="alert-banner" :style="{ 
+                    border: `2px solid ${alertColor}`, 
+                    color: alertColor 
                 }">
-                    {{ currentAlert?.message || '現在通常運転中' }}
+                    <div class="alert-icon">⚠️</div>
+                    {{ currentAlert?.message }}
+                </div>
+                <div class="voice-avatar">
+                    <img src="yurui.png" :class="{ 'emergency-shake': isShaking }">
                 </div>
             </div>
 
-            <!-- 侧边控制面板 -->
-            <div class="mobile-panel">
-                <div class="panel-section">
-                    <h3>🔔 实时警报</h3>
-                    <div class="alert-level" :style="{background: alertColor}">
-                        {{ currentAlert?.type || '--' }}
-                    </div>
+            <div class="control-panel">
+                <div class="panel-header">
+                    <h2>地震情報履歴</h2>
+                    <select v-model="selectedVoice" class="voice-select">
+                        <option value="yurui">🎭 油库里模式</option>
+                        <option value="metan">🎤 四国めたん</option>
+                    </select>
                 </div>
-
-                <div class="panel-section">
-                    <h3>📜 最近事件</h3>
-                    <div class="mobile-event" v-for="event in recentEvents">
-                        <div class="event-time">{{ formatTime(event.time) }}</div>
-                        <div class="event-message">{{ event.message }}</div>
-                    </div>
-                </div>
-
-                <!-- 余震监测模块 -->
-                <div class="panel-section aftershock-panel" v-if="mainShock">
-                    <h3>⚠️ 余震警戒中</h3>
-                    <div class="progress-bar">
-                        <div class="progress" :style="{width: aftershockProgress + '%'}"></div>
-                    </div>
-                    <div class="aftershock-count">
-                        已检测余震：{{ aftershocks.length }}次
+                
+                <div class="history-list">
+                    <div v-for="(event, index) in history" 
+                         class="event-item"
+                         :style="{ 
+                             borderLeft: `4px solid ${alertColors[event.type]}`,
+                             opacity: 1 - index * 0.07 
+                         }">
+                        <div class="time">{{ formatTime(event.time) }}</div>
+                        <div class="message">{{ event.message }}</div>
+                        <div class="location">{{ event.region }} 震度{{ event.intensity }}</div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <audio ref="alertAudio"></audio>
     </div>
 
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
@@ -154,75 +175,209 @@
         createApp({
             setup() {
                 const state = reactive({
-                    // 保持之前的数据状态...
                     map: null,
-                    isPortrait: window.matchMedia("(orientation: portrait)").matches
+                    currentAlert: null,
+                    isShaking: false,
+                    isPlaying: false,
+                    history: [],
+                    selectedVoice: 'yurui',
+                    alertColors: {
+                        warning: '#ff3860',
+                        forecast: '#ffdd57',
+                        tsunami: '#209cee'
+                    },
+                    audioContext: null
                 });
 
-                // 移动端地图初始化
-                const initMobileMap = () => {
+                // 初始化地图
+                const initMap = () => {
                     state.map = L.map('quake-map', {
+                        center: [35.68, 139.76],
+                        zoom: 6,
                         zoomControl: false,
-                        dragging: !L.Browser.mobile,
-                        tap: false,
-                        inertia: true
-                    }).setView([35.68, 139.76], 6);
+                        attributionControl: false
+                    });
 
                     L.tileLayer('https://{s}.tile.openstreetmap.jp/{z}/{x}/{y}.png', {
                         maxZoom: 18,
-                        attribution: ''
                     }).addTo(state.map);
 
-                    // 移动端缩放控件
-                    L.control.zoom({
-                        position: 'bottomright'
-                    }).addTo(state.map);
+                    L.control.attribution({ prefix: false }).addTo(state.map);
                 };
 
-                // 移动端事件处理
-                const handleTouchEvent = (event) => {
-                    if(event.type === 'earthquake') {
-                        playHapticFeedback();
-                        showVisualFeedback();
+                // 音效生成系统
+                const createAlertTone = (type) => {
+                    if (!state.audioContext) {
+                        state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+
+                    const osc = state.audioContext.createOscillator();
+                    const gain = state.audioContext.createGain();
+                    const now = state.audioContext.currentTime;
+
+                    osc.connect(gain);
+                    gain.connect(state.audioContext.destination);
+
+                    // 警报类型参数配置
+                    const params = {
+                        forecast: {
+                            type: 'sine',
+                            freq: 880,
+                            duration: 1.8,
+                            gain: 0.25
+                        },
+                        warning: {
+                            type: 'square',
+                            freq: 1200,
+                            duration: 2.5,
+                            gain: 0.4
+                        },
+                        tsunami: {
+                            type: 'square',
+                            freq: 960,
+                            pattern: [0.3, 0.3],
+                            cycles: 10,
+                            gain: 0.5
+                        }
+                    }[type];
+
+                    osc.type = params.type;
+                    gain.gain.setValueAtTime(0.001, now);
+
+                    if (type === 'tsunami') {
+                        // 生成海啸警报脉冲音效
+                        let time = now;
+                        for (let i = 0; i < params.cycles; i++) {
+                            gain.gain.linearRampToValueAtTime(params.gain, time);
+                            time += params.pattern[0];
+                            gain.gain.linearRampToValueAtTime(0.001, time);
+                            time += params.pattern[1];
+                        }
+                        osc.frequency.setValueAtTime(params.freq, now);
+                        osc.start(now);
+                        osc.stop(time);
+                    } else {
+                        // 普通警报音效
+                        osc.frequency.setValueAtTime(params.freq, now);
+                        gain.gain.linearRampToValueAtTime(params.gain, now + 0.1);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + params.duration);
+                        osc.start(now);
+                        osc.stop(now + params.duration);
                     }
                 };
 
-                // 触觉反馈
-                const playHapticFeedback = () => {
-                    if(navigator.vibrate) {
-                        navigator.vibrate([50, 50, 50]);
+                // 语音播报系统
+                const playVoiceAlert = (message, urgency) => {
+                    const speech = new SpeechSynthesisUtterance(message);
+                    const voices = window.speechSynthesis.getVoices();
+                    speech.voice = voices.find(v => v.lang === 'ja-JP' && v.name.includes('Haruka'));
+                    speech.rate = urgency === 'high' ? 1.6 : 1.2;
+                    speech.pitch = state.selectedVoice === 'yurui' ? 1.8 : 1.2;
+                    
+                    window.speechSynthesis.cancel();
+                    window.speechSynthesis.speak(speech);
+                    state.isPlaying = true;
+                    
+                    speech.onend = () => {
+                        state.isPlaying = false;
+                    };
+                };
+
+                // 模拟实时数据连接
+                const mockWebSocket = () => {
+                    setInterval(() => {
+                        const mockEvent = generateMockEvent();
+                        handleQuakeEvent(mockEvent);
+                    }, 15000);
+                };
+
+                const generateMockEvent = () => ({
+                    type: Math.random() > 0.7 ? 'Tsunami' : 'EEW',
+                    region: ['東京', '大阪', '福島', '北海道'][Math.floor(Math.random() * 4)],
+                    intensity: Math.floor(Math.random() * 7),
+                    magnitude: (Math.random() * 8 + 1).toFixed(1),
+                    lat: 35.68 + (Math.random() - 0.5) * 5,
+                    lon: 139.76 + (Math.random() - 0.5) * 5,
+                    timestamp: Date.now()
+                });
+
+                const handleQuakeEvent = (event) => {
+                    const alertType = determineAlertType(event);
+                    const message = generateAlertMessage(alertType, event);
+                    
+                    // 更新状态
+                    state.currentAlert = { type: alertType, message, ...event };
+                    addToHistory(alertType, message, event);
+                    
+                    // 触发效果
+                    createAlertTone(alertType);
+                    playVoiceAlert(message, alertType === 'warning' ? 'high' : 'normal');
+                    triggerEffects(alertType);
+                    updateMapVisual(event);
+                };
+
+                const determineAlertType = (event) => {
+                    if (event.type === 'Tsunami') return 'tsunami';
+                    return event.intensity >= 5 ? 'warning' : 'forecast';
+                };
+
+                const generateAlertMessage = (type, event) => {
+                    const messages = {
+                        warning: `緊急地震速報！${event.region}で震度${event.intensity}を予測`,
+                        forecast: `${event.region}地域に地震注意報が発表されました`,
+                        tsunami: `津波警報！${event.region}沿岸部に${event.intensity}メートルの津波予測`
+                    };
+                    return messages[type];
+                };
+
+                const triggerEffects = (type) => {
+                    state.isShaking = true;
+                    if (navigator.vibrate) {
+                        const pattern = type === 'tsunami' ? [300, 300, 300] : [200, 100, 200];
+                        navigator.vibrate(pattern);
                     }
+                    setTimeout(() => state.isShaking = false, 2000);
                 };
 
-                // 可视化反馈
-                const showVisualFeedback = () => {
-                    const mapContainer = document.getElementById('quake-map');
-                    mapContainer.style.transform = 'scale(1.02)';
-                    setTimeout(() => {
-                        mapContainer.style.transform = 'scale(1)';
-                    }, 200);
+                const updateMapVisual = (event) => {
+                    L.circleMarker([event.lat, event.lon], {
+                        radius: Math.sqrt(event.magnitude) * 3,
+                        color: state.alertColors[state.currentAlert.type],
+                        fillOpacity: 0.7
+                    }).bindPopup(`
+                        <b>${event.region} 地震情報</b><br>
+                        規模：M${event.magnitude}<br>
+                        最大震度：${event.intensity}
+                    `).addTo(state.map);
                 };
 
-                // 余震进度计算
-                const aftershockProgress = computed(() => {
-                    return Math.min((state.aftershockPeriod / 72) * 100, 100);
-                });
+                const addToHistory = (type, message, event) => {
+                    state.history.unshift({
+                        type,
+                        message,
+                        time: new Date(event.timestamp),
+                        region: event.region,
+                        intensity: event.intensity
+                    });
+                    if (state.history.length > 15) state.history.pop();
+                };
 
-                // 移动端特定模拟数据
-                const generateMobileEvent = () => ({
-                    // 增加移动端定位精度
-                    lat: 35.68 + (Math.random() - 0.5) * 2,
-                    lon: 139.76 + (Math.random() - 0.5) * 2,
-                    // 其他字段保持一致...
-                });
+                const formatTime = (date) => {
+                    return date.toLocaleTimeString('ja-JP', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                };
 
                 // 初始化
-                initMobileMap();
-                setupMobileWS();
+                initMap();
+                mockWebSocket();
 
                 return {
                     ...state,
-                    aftershockProgress
+                    alertColor: () => state.currentAlert ? state.alertColors[state.currentAlert.type] : 'transparent',
+                    formatTime
                 };
             }
         }).mount('#app');
