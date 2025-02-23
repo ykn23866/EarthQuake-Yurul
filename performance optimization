@@ -1,0 +1,9 @@
+// 节流处理
+   const throttledUpdate = _.throttle(updateMap, 1000);
+   
+   // 动态加载策略
+   if (isMobile) {
+       import('./mobile-leaflet.js').then(module => {
+           module.initMobileFeatures();
+       });
+   }
