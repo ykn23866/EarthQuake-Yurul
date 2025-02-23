@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="screen-orientation" content="landscape">
+    <title>地震先知-YURUI Mobile</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"/>
+    <style>
+        :root {
+            --alert-red: #ff3860;
+            --alert-yellow: #ffdd57;
+            --alert-blue: #209cee;
+        }
+
+        /* 横屏强制提示 */
+        .orientation-warning {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            font-size: 2rem;
+            text-align: center;
+        }
+
+        @media (orientation: portrait) {
+            .orientation-warning { display: flex; }
+            #app { display: none; }
+        }
+
+        /* 移动端横屏布局 */
+        body {
+            margin: 0;
+            overflow: hidden;
+            touch-action: none;
+            font-family: 'Noto Sans JP', sans-serif;
+        }
+
+        .mobile-container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+            flex-direction: row;
+        }
+
+        .map-container {
+            flex: 1;
+            position: relative;
+        }
+
+        .mobile-panel {
+            width: 35vw;
+            min-width: 300px;
+            background: rgba(255,255,255,0.95);
+            padding: 1rem;
+            overflow-y: auto;
+            border-left: 2px solid #ddd;
+        }
+
+        /* 移动端优化元素 */
+        .mobile-alert {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
+            background: rgba(255,255,255,0.9);
+            padding: 1rem;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            font-size: 1.1rem;
+        }
+
+        .mobile-avatar {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 60px;
+            height: 60px;
+            filter: drop-shadow(2px 2px 3px rgba(0,0,0,0.2));
+        }
+
+        .quake-marker {
+            animation: mobilePulse 1.5s infinite;
+        }
+
+        @keyframes mobilePulse {
+            0% { transform: scale(0.8); opacity: 0.7; }
+            100% { transform: scale(1.2); opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="orientation-warning">
+        <div>⚠️ 请将手机旋转至横屏使用 ⚠️</div>
+    </div>
+
+    <div id="app">
+        <div class="mobile-container">
+            <div class="map-container" id="quake-map">
+                <img src="yurui-mobile.png" class="mobile-avatar" :class="{shaking: isShaking}">
+                
+                <!-- 移动端警报条 -->
+                <div class="mobile-alert" :style="{
+                    border: `2px solid ${alertColor}`,
+                    color: alertColor
+                }">
+                    {{ currentAlert?.message || '現在通常運転中' }}
+                </div>
+            </div>
+
+            <!-- 侧边控制面板 -->
+            <div class="mobile-panel">
+                <div class="panel-section">
+                    <h3>🔔 实时警报</h3>
+                    <div class="alert-level" :style="{background: alertColor}">
+                        {{ currentAlert?.type || '--' }}
+                    </div>
+                </div>
+
+                <div class="panel-section">
+                    <h3>📜 最近事件</h3>
+                    <div class="mobile-event" v-for="event in recentEvents">
+                        <div class="event-time">{{ formatTime(event.time) }}</div>
+                        <div class="event-message">{{ event.message }}</div>
+                    </div>
+                </div>
+
+                <!-- 余震监测模块 -->
+                <div class="panel-section aftershock-panel" v-if="mainShock">
+                    <h3>⚠️ 余震警戒中</h3>
+                    <div class="progress-bar">
+                        <div class="progress" :style="{width: aftershockProgress + '%'}"></div>
+                    </div>
+                    <div class="aftershock-count">
+                        已检测余震：{{ aftershocks.length }}次
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        const { createApp, ref, reactive } = Vue;
+
+        createApp({
+            setup() {
+                const state = reactive({
+                    // 保持之前的数据状态...
+                    map: null,
+                    isPortrait: window.matchMedia("(orientation: portrait)").matches
+                });
+
+                // 移动端地图初始化
+                const initMobileMap = () => {
+                    state.map = L.map('quake-map', {
+                        zoomControl: false,
+                        dragging: !L.Browser.mobile,
+                        tap: false,
+                        inertia: true
+                    }).setView([35.68, 139.76], 6);
+
+                    L.tileLayer('https://{s}.tile.openstreetmap.jp/{z}/{x}/{y}.png', {
+                        maxZoom: 18,
+                        attribution: ''
+                    }).addTo(state.map);
+
+                    // 移动端缩放控件
+                    L.control.zoom({
+                        position: 'bottomright'
+                    }).addTo(state.map);
+                };
+
+                // 移动端事件处理
+                const handleTouchEvent = (event) => {
+                    if(event.type === 'earthquake') {
+                        playHapticFeedback();
+                        showVisualFeedback();
+                    }
+                };
+
+                // 触觉反馈
+                const playHapticFeedback = () => {
+                    if(navigator.vibrate) {
+                        navigator.vibrate([50, 50, 50]);
+                    }
+                };
+
+                // 可视化反馈
+                const showVisualFeedback = () => {
+                    const mapContainer = document.getElementById('quake-map');
+                    mapContainer.style.transform = 'scale(1.02)';
+                    setTimeout(() => {
+                        mapContainer.style.transform = 'scale(1)';
+                    }, 200);
+                };
+
+                // 余震进度计算
+                const aftershockProgress = computed(() => {
+                    return Math.min((state.aftershockPeriod / 72) * 100, 100);
+                });
+
+                // 移动端特定模拟数据
+                const generateMobileEvent = () => ({
+                    // 增加移动端定位精度
+                    lat: 35.68 + (Math.random() - 0.5) * 2,
+                    lon: 139.76 + (Math.random() - 0.5) * 2,
+                    // 其他字段保持一致...
+                });
+
+                // 初始化
+                initMobileMap();
+                setupMobileWS();
+
+                return {
+                    ...state,
+                    aftershockProgress
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
