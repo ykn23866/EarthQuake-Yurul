@@ -1,0 +1,21 @@
+const generateMockEvent = () => {
+    const isAftershockPeriod = state.mainShock && 
+        Date.now() - state.mainShock.time < 72 * 3600 * 1000;
+
+    return {
+        type: isAftershockPeriod ? 'Aftershock' : 
+               Math.random() > 0.7 ? 'Tsunami' : 'EEW',
+        region: randomRegion(),
+        intensity: calculateIntensity(isAftershockPeriod),
+        magnitude: calculateMagnitude(isAftershockPeriod),
+        // ...其他字段
+    };
+};
+
+const calculateMagnitude = (isAftershock) => {
+    if (isAftershock) {
+        const base = state.mainShock.magnitude - 1.5;
+        return Math.min(base + Math.random() * 2, state.mainShock.magnitude);
+    }
+    return Math.random() * 8 + 1;
+};
