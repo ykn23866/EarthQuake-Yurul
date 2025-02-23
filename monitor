@@ -1,0 +1,10 @@
+<div class="aftershock-panel">
+       <h3>⚠️ 余震警戒中</h3>
+       <div class="progress-bar">
+           <div class="progress" :style="{width: aftershockProgress + '%'}"></div>
+       </div>
+       <div class="aftershock-stats">
+           <div>经过时间：{{ aftershockPeriod }}小时</div>
+           <div>最大余震：M{{ maxAftershock }}</div>
+       </div>
+   </div>
