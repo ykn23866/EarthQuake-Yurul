@@ -1,0 +1,7 @@
+server {
+    location /mobile {
+        if ($http_user_agent ~* "mobile|android|iphone") {
+            rewrite ^ /mobile.html break;
+        }
+    }
+}
