@@ -1,386 +1,95 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>地震先知-YURUI 完全版</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"/>
-    <style>
-        :root {
-            --alert-red: #ff3860;
-            --alert-yellow: #ffdd57;
-            --alert-blue: #209cee;
-            --bg-color: #f0f8ff;
-        }
+import requests
+import time
+import pygame
+import pyttsx3
+from datetime import datetime
+import folium
+from folium.plugins import MiniMap
 
-        body {
-            margin: 0;
-            font-family: 'Noto Sans JP', sans-serif;
-            background: var(--bg-color);
-        }
-
-        .container {
-            display: grid;
-            grid-template-columns: 1fr 320px;
-            height: 100vh;
-            gap: 10px;
-        }
-
-        #quake-map {
-            background: #e6f3ff;
-            transition: filter 0.3s;
-        }
-
-        .control-panel {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 1rem;
-            box-shadow: -2px 0 10px rgba(0,0,0,0.1);
-            overflow-y: auto;
-        }
-
-        .voice-avatar {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            z-index: 1000;
-            transition: transform 0.2s;
-        }
-
-        .voice-avatar img {
-            width: 100px;
-            height: 100px;
-            filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.2));
-            animation: breathe 3s ease-in-out infinite;
-        }
-
-        @keyframes breathe {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-8px); }
-        }
-
-        .alert-banner {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 1rem 2rem;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 50px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-            font-size: 1.2em;
-            backdrop-filter: blur(5px);
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
-
-        .event-item {
-            padding: 1rem;
-            margin: 0.5rem 0;
-            background: white;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            transition: transform 0.2s;
-        }
-
-        .event-item:hover {
-            transform: translateX(5px);
-        }
-
-        .audio-indicator {
-            position: fixed;
-            top: 15px;
-            right: 15px;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background: #4CAF50;
-            animation: sonar 1.5s infinite;
-            opacity: 0.8;
-        }
-
-        @keyframes sonar {
-            0% { 
-                box-shadow: 0 0 0 0 rgba(76,175,80,0.4); 
-                transform: scale(0.9);
-            }
-            100% { 
-                box-shadow: 0 0 0 20px rgba(76,175,80,0); 
-                transform: scale(1.1);
-            }
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                grid-template-columns: 1fr;
-                grid-template-rows: 60vh 40vh;
-            }
-            .voice-avatar img {
-                width: 70px;
-                height: 70px;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div id="app">
-        <div class="audio-indicator" v-show="isPlaying"></div>
+class EarthquakeMonitor:
+    def __init__(self):
+        self.base_url = "https://earthquake.usgs.gov/fdsnws/event/1/query"
+        self.last_update = None
+        self.alerted_events = set()
+        self.engine = pyttsx3.init()
+        self.japan_bbox = "122.56,24.05,146.19,45.79"  # 日本地理边界
         
-        <div class="container">
-            <div id="quake-map">
-                <div class="alert-banner" :style="{ 
-                    border: `2px solid ${alertColor}`, 
-                    color: alertColor 
-                }">
-                    <div class="alert-icon">⚠️</div>
-                    {{ currentAlert?.message }}
-                </div>
-                <div class="voice-avatar">
-                    <img src="yurui.png" :class="{ 'emergency-shake': isShaking }">
-                </div>
-            </div>
+        # 初始化地图
+        self.map = folium.Map(location=[36.2048, 138.2529], zoom_start=5)
+        MiniMap().add_to(self.map)
+        folium.TileLayer('Stamen Terrain').add_to(self.map)
+        self.map.save('earthquake_map.html')
 
-            <div class="control-panel">
-                <div class="panel-header">
-                    <h2>地震情報履歴</h2>
-                    <select v-model="selectedVoice" class="voice-select">
-                        <option value="yurui">🎭 油库里模式</option>
-                        <option value="metan">🎤 四国めたん</option>
-                    </select>
-                </div>
+    def get_earthquake_data(self):
+        params = {
+            "format": "geojson",
+            "starttime": self.last_update,
+            "bbox": self.japan_bbox,
+            "minmagnitude": 3.0
+        }
+        try:
+            response = requests.get(self.base_url, params=params)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching data: {e}")
+            return None
+
+    def analyze_tsunami_risk(self, earthquake):
+        # 海啸风险评估逻辑
+        if earthquake['properties']['tsunami'] == 1:
+            return "海啸预警已发布！"
+        if earthquake['properties']['mag'] >= 7.0 and earthquake['geometry']['coordinates'][2] < 50:
+            return "可能引发海啸！"
+        return "无海啸风险"
+
+    def voice_alert(self, message):
+        self.engine.say(message)
+        self.engine.runAndWait()
+
+    def update_map(self, earthquake):
+        coord = earthquake['geometry']['coordinates']
+        mag = earthquake['properties']['mag']
+        popup_text = f"""
+        震级: {mag}<br>
+        时间: {datetime.fromtimestamp(earthquake['properties']['time']/1000)}<br>
+        深度: {coord[2]} km
+        """
+        color = 'red' if mag >= 5.0 else 'orange'
+        folium.CircleMarker(
+            location=[coord[1], coord[0]],
+            radius=mag*2,
+            color=color,
+            fill=True,
+            popup=popup_text
+        ).add_to(self.map)
+        self.map.save('earthquake_map.html')
+
+    def monitor(self):
+        while True:
+            data = self.get_earthquake_data()
+            if data and data['features']:
+                for eq in data['features']:
+                    event_id = eq['id']
+                    if event_id not in self.alerted_events:
+                        # 更新地图
+                        self.update_map(eq)
+                        
+                        # 生成警报信息
+                        tsunami_info = self.analyze_tsunami_risk(eq)
+                        alert_message = f"检测到地震。震级{eq['properties']['mag']}级，"
+                        alert_message += f"位置：北纬{eq['geometry']['coordinates'][1]:.2f}度，"
+                        alert_message += f"东经{eq['geometry']['coordinates'][0]:.2f}度。{tsunami_info}"
+                        
+                        # 语音播报
+                        self.voice_alert(alert_message)
+                        
+                        self.alerted_events.add(event_id)
                 
-                <div class="history-list">
-                    <div v-for="(event, index) in history" 
-                         class="event-item"
-                         :style="{ 
-                             borderLeft: `4px solid ${alertColors[event.type]}`,
-                             opacity: 1 - index * 0.07 
-                         }">
-                        <div class="time">{{ formatTime(event.time) }}</div>
-                        <div class="message">{{ event.message }}</div>
-                        <div class="location">{{ event.region }} 震度{{ event.intensity }}</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+                self.last_update = datetime.now().isoformat()
+            
+            time.sleep(60)  # 每分钟检查一次更新
 
-        <audio ref="alertAudio"></audio>
-    </div>
-
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <script>
-        const { createApp, ref, reactive } = Vue;
-
-        createApp({
-            setup() {
-                const state = reactive({
-                    map: null,
-                    currentAlert: null,
-                    isShaking: false,
-                    isPlaying: false,
-                    history: [],
-                    selectedVoice: 'yurui',
-                    alertColors: {
-                        warning: '#ff3860',
-                        forecast: '#ffdd57',
-                        tsunami: '#209cee'
-                    },
-                    audioContext: null
-                });
-
-                // 初始化地图
-                const initMap = () => {
-                    state.map = L.map('quake-map', {
-                        center: [35.68, 139.76],
-                        zoom: 6,
-                        zoomControl: false,
-                        attributionControl: false
-                    });
-
-                    L.tileLayer('https://{s}.tile.openstreetmap.jp/{z}/{x}/{y}.png', {
-                        maxZoom: 18,
-                    }).addTo(state.map);
-
-                    L.control.attribution({ prefix: false }).addTo(state.map);
-                };
-
-                // 音效生成系统
-                const createAlertTone = (type) => {
-                    if (!state.audioContext) {
-                        state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    }
-
-                    const osc = state.audioContext.createOscillator();
-                    const gain = state.audioContext.createGain();
-                    const now = state.audioContext.currentTime;
-
-                    osc.connect(gain);
-                    gain.connect(state.audioContext.destination);
-
-                    // 警报类型参数配置
-                    const params = {
-                        forecast: {
-                            type: 'sine',
-                            freq: 880,
-                            duration: 1.8,
-                            gain: 0.25
-                        },
-                        warning: {
-                            type: 'square',
-                            freq: 1200,
-                            duration: 2.5,
-                            gain: 0.4
-                        },
-                        tsunami: {
-                            type: 'square',
-                            freq: 960,
-                            pattern: [0.3, 0.3],
-                            cycles: 10,
-                            gain: 0.5
-                        }
-                    }[type];
-
-                    osc.type = params.type;
-                    gain.gain.setValueAtTime(0.001, now);
-
-                    if (type === 'tsunami') {
-                        // 生成海啸警报脉冲音效
-                        let time = now;
-                        for (let i = 0; i < params.cycles; i++) {
-                            gain.gain.linearRampToValueAtTime(params.gain, time);
-                            time += params.pattern[0];
-                            gain.gain.linearRampToValueAtTime(0.001, time);
-                            time += params.pattern[1];
-                        }
-                        osc.frequency.setValueAtTime(params.freq, now);
-                        osc.start(now);
-                        osc.stop(time);
-                    } else {
-                        // 普通警报音效
-                        osc.frequency.setValueAtTime(params.freq, now);
-                        gain.gain.linearRampToValueAtTime(params.gain, now + 0.1);
-                        gain.gain.exponentialRampToValueAtTime(0.001, now + params.duration);
-                        osc.start(now);
-                        osc.stop(now + params.duration);
-                    }
-                };
-
-                // 语音播报系统
-                const playVoiceAlert = (message, urgency) => {
-                    const speech = new SpeechSynthesisUtterance(message);
-                    const voices = window.speechSynthesis.getVoices();
-                    speech.voice = voices.find(v => v.lang === 'ja-JP' && v.name.includes('Haruka'));
-                    speech.rate = urgency === 'high' ? 1.6 : 1.2;
-                    speech.pitch = state.selectedVoice === 'yurui' ? 1.8 : 1.2;
-                    
-                    window.speechSynthesis.cancel();
-                    window.speechSynthesis.speak(speech);
-                    state.isPlaying = true;
-                    
-                    speech.onend = () => {
-                        state.isPlaying = false;
-                    };
-                };
-
-                // 模拟实时数据连接
-                const mockWebSocket = () => {
-                    setInterval(() => {
-                        const mockEvent = generateMockEvent();
-                        handleQuakeEvent(mockEvent);
-                    }, 15000);
-                };
-
-                const generateMockEvent = () => ({
-                    type: Math.random() > 0.7 ? 'Tsunami' : 'EEW',
-                    region: ['東京', '大阪', '福島', '北海道'][Math.floor(Math.random() * 4)],
-                    intensity: Math.floor(Math.random() * 7),
-                    magnitude: (Math.random() * 8 + 1).toFixed(1),
-                    lat: 35.68 + (Math.random() - 0.5) * 5,
-                    lon: 139.76 + (Math.random() - 0.5) * 5,
-                    timestamp: Date.now()
-                });
-
-                const handleQuakeEvent = (event) => {
-                    const alertType = determineAlertType(event);
-                    const message = generateAlertMessage(alertType, event);
-                    
-                    // 更新状态
-                    state.currentAlert = { type: alertType, message, ...event };
-                    addToHistory(alertType, message, event);
-                    
-                    // 触发效果
-                    createAlertTone(alertType);
-                    playVoiceAlert(message, alertType === 'warning' ? 'high' : 'normal');
-                    triggerEffects(alertType);
-                    updateMapVisual(event);
-                };
-
-                const determineAlertType = (event) => {
-                    if (event.type === 'Tsunami') return 'tsunami';
-                    return event.intensity >= 5 ? 'warning' : 'forecast';
-                };
-
-                const generateAlertMessage = (type, event) => {
-                    const messages = {
-                        warning: `緊急地震速報！${event.region}で震度${event.intensity}を予測`,
-                        forecast: `${event.region}地域に地震注意報が発表されました`,
-                        tsunami: `津波警報！${event.region}沿岸部に${event.intensity}メートルの津波予測`
-                    };
-                    return messages[type];
-                };
-
-                const triggerEffects = (type) => {
-                    state.isShaking = true;
-                    if (navigator.vibrate) {
-                        const pattern = type === 'tsunami' ? [300, 300, 300] : [200, 100, 200];
-                        navigator.vibrate(pattern);
-                    }
-                    setTimeout(() => state.isShaking = false, 2000);
-                };
-
-                const updateMapVisual = (event) => {
-                    L.circleMarker([event.lat, event.lon], {
-                        radius: Math.sqrt(event.magnitude) * 3,
-                        color: state.alertColors[state.currentAlert.type],
-                        fillOpacity: 0.7
-                    }).bindPopup(`
-                        <b>${event.region} 地震情報</b><br>
-                        規模：M${event.magnitude}<br>
-                        最大震度：${event.intensity}
-                    `).addTo(state.map);
-                };
-
-                const addToHistory = (type, message, event) => {
-                    state.history.unshift({
-                        type,
-                        message,
-                        time: new Date(event.timestamp),
-                        region: event.region,
-                        intensity: event.intensity
-                    });
-                    if (state.history.length > 15) state.history.pop();
-                };
-
-                const formatTime = (date) => {
-                    return date.toLocaleTimeString('ja-JP', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                        second: '2-digit'
-                    });
-                };
-
-                // 初始化
-                initMap();
-                mockWebSocket();
-
-                return {
-                    ...state,
-                    alertColor: () => state.currentAlert ? state.alertColors[state.currentAlert.type] : 'transparent',
-                    formatTime
-                };
-            }
-        }).mount('#app');
-    </script>
-</body>
-</html>
+if __name__ == "__main__":
+    monitor = EarthquakeMonitor()
+    monitor.monitor()
