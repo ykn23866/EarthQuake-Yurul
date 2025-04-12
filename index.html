@@ -1,95 +1,169 @@
-import requests
-import time
-import pygame
-import pyttsx3
-from datetime import datetime
-import folium
-from folium.plugins import MiniMap
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>日本地震实时监测系统</title>
+    <!-- 引入地图库 -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    
+    <!-- 引入仪表盘库 -->
+    <script src="https://cdn.jsdelivr.net/npm/raphael@2.3.0/raphael.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/justgage@1.4.0/justgage.min.js"></script>
 
-class EarthquakeMonitor:
-    def __init__(self):
-        self.base_url = "https://earthquake.usgs.gov/fdsnws/event/1/query"
-        self.last_update = None
-        self.alerted_events = set()
-        self.engine = pyttsx3.init()
-        self.japan_bbox = "122.56,24.05,146.19,45.79"  # 日本地理边界
-        
-        # 初始化地图
-        self.map = folium.Map(location=[36.2048, 138.2529], zoom_start=5)
-        MiniMap().add_to(self.map)
-        folium.TileLayer('Stamen Terrain').add_to(self.map)
-        self.map.save('earthquake_map.html')
-
-    def get_earthquake_data(self):
-        params = {
-            "format": "geojson",
-            "starttime": self.last_update,
-            "bbox": self.japan_bbox,
-            "minmagnitude": 3.0
+    <style>
+        /* 精致的UI设计 */
+        #map { height: 60vh; }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            padding: 20px;
+            background: #f0f0f0;
         }
-        try:
-            response = requests.get(self.base_url, params=params)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching data: {e}")
-            return None
+        .gauge {
+            background: white;
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div class="dashboard">
+        <div id="shindo-gauge" class="gauge"></div>
+        <div id="acceleration-gauge" class="gauge"></div>
+        <div id="depth-gauge" class="gauge"></div>
+    </div>
 
-    def analyze_tsunami_risk(self, earthquake):
-        # 海啸风险评估逻辑
-        if earthquake['properties']['tsunami'] == 1:
-            return "海啸预警已发布！"
-        if earthquake['properties']['mag'] >= 7.0 and earthquake['geometry']['coordinates'][2] < 50:
-            return "可能引发海啸！"
-        return "无海啸风险"
+    <script>
+        // 初始化地图
+        const map = L.map('map').setView([36.2048, 138.2529], 5);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    def voice_alert(self, message):
-        self.engine.say(message)
-        self.engine.runAndWait()
+        // 初始化仪表盘
+        const shindoGauge = new JustGage({
+            id: "shindo-gauge",
+            value: 0,
+            min: 0,
+            max: 7,
+            title: "震度",
+            label: "日本震度",
+            levelColors: ["#00ff00", "#ffff00", "#ff0000"]
+        });
 
-    def update_map(self, earthquake):
-        coord = earthquake['geometry']['coordinates']
-        mag = earthquake['properties']['mag']
-        popup_text = f"""
-        震级: {mag}<br>
-        时间: {datetime.fromtimestamp(earthquake['properties']['time']/1000)}<br>
-        深度: {coord[2]} km
-        """
-        color = 'red' if mag >= 5.0 else 'orange'
-        folium.CircleMarker(
-            location=[coord[1], coord[0]],
-            radius=mag*2,
-            color=color,
-            fill=True,
-            popup=popup_text
-        ).add_to(self.map)
-        self.map.save('earthquake_map.html')
+        const accGauge = new JustGage({
+            id: "acceleration-gauge",
+            value: 0,
+            min: 0,
+            max: 2000,
+            title: "加速度 (Gal)",
+            label: "最大加速度"
+        });
 
-    def monitor(self):
-        while True:
-            data = self.get_earthquake_data()
-            if data and data['features']:
-                for eq in data['features']:
-                    event_id = eq['id']
-                    if event_id not in self.alerted_events:
-                        # 更新地图
-                        self.update_map(eq)
-                        
-                        # 生成警报信息
-                        tsunami_info = self.analyze_tsunami_risk(eq)
-                        alert_message = f"检测到地震。震级{eq['properties']['mag']}级，"
-                        alert_message += f"位置：北纬{eq['geometry']['coordinates'][1]:.2f}度，"
-                        alert_message += f"东经{eq['geometry']['coordinates'][0]:.2f}度。{tsunami_info}"
-                        
-                        # 语音播报
-                        self.voice_alert(alert_message)
-                        
-                        self.alerted_events.add(event_id)
-                
-                self.last_update = datetime.now().isoformat()
-            
-            time.sleep(60)  # 每分钟检查一次更新
+        // 语音合成初始化
+        const synth = window.speechSynthesis;
+        let lastAlert = '';
+        
+        function speak(text) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'ja-JP';  // 日语
+            utterance.pitch = 1.2;     // 提高音调
+            utterance.rate = 0.9;      // 稍慢语速
+            synth.speak(utterance);
+        }
 
-if __name__ == "__main__":
-    monitor = EarthquakeMonitor()
-    monitor.monitor()
+        // 模拟实时数据（实际应连接API）
+        async function fetchData() {
+            // 实际应替换为JMA API请求
+            const mockData = {
+                shindo: 4,
+                acceleration: 380,  // Gal单位
+                depth: 30,
+                lat: 35.6812 + Math.random()*0.5,
+                lng: 139.7671 + Math.random()*0.5,
+                type: 'earthquake',
+                alert: 'earthquake_warning'
+            };
+
+            // 更新仪表盘
+            shindoGauge.refresh(mockData.shindo);
+            accGauge.refresh(mockData.acceleration);
+
+            // 更新地图标记
+            L.marker([mockData.lat, mockData.lng], {
+                icon: L.icon({
+                    iconUrl: getMarkerIcon(mockData.shindo),
+                    iconSize: [32, 32]
+                })
+            }).addTo(map)
+            .bindPopup(`震度 ${mockData.shindo}<br>深度 ${mockData.depth}km`);
+
+            // 触发警报
+            checkAlerts(mockData);
+        }
+
+        function getMarkerIcon(shindo) {
+            // 根据震度返回不同颜色图标
+            const colors = ['#00ff00', '#ffff00', '#ff9900', '#ff0000'];
+            const level = Math.min(Math.floor(shindo/2), 3);
+            return `data:image/svg+xml;utf8,<svg ... fill="${colors[level]}"/>`; // 简化的SVG
+        }
+
+        function checkAlerts(data) {
+            const alerts = {
+                earthquake_warning: "緊急地震速報！震度 ${data.shindo} を検知しました",
+                tsunami_warning: "津波警報が発令されています",
+                major_tsunami: "大津波警報！直ちに高台へ避難してください",
+                aftershock: "余震に注意してください"
+            };
+
+            const message = alerts[data.alert];
+            if (message && message !== lastAlert) {
+                speak(message);
+                lastAlert = message;
+            }
+        }
+
+        // 每10秒更新数据
+        setInterval(fetchData, 10000);
+        fetchData(); // 初始加载
+    </script>
+</body># 后端核心代码（app.py）
+from flask import Flask, jsonify
+import requests
+from datetime import datetime
+
+app = Flask(__name__)
+
+def get_earthquake_data():
+    # 日本气象厅API示例（需替换为实际API端点）
+    jma_url = "https://api.jma.go.jp/jma/quake/v1/now"
+    usgs_url = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&latitude=35.6762&longitude=139.6503&maxradiuskm=1000"
+    
+    try:
+        response = requests.get(usgs_url)
+        data = response.json()
+        earthquakes = []
+        for feature in data['features']:
+            quake = {
+                "magnitude": feature['properties']['mag'],
+                "coordinates": feature['geometry']['coordinates'][:2],
+                "depth": feature['geometry']['coordinates'][2],
+                "time": datetime.fromtimestamp(feature['properties']['time']/1000),
+                "tsunami": 1 if feature['properties']['tsunami'] else 0
+            }
+            earthquakes.append(quake)
+        return earthquakes
+    except Exception as e:
+        print(f"Error fetching data: {e}")
+        return []
+
+@app.route('/api/earthquakes')
+def get_earthquakes():
+    return jsonify(get_earthquake_data())
+
+if __name__ == '__main__':
+    app.run(debug=True)
+</html>
